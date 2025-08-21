@@ -1,0 +1,143 @@
+:root{
+  --bg:#0b0f14;
+  --card:#111826;
+  --muted:#9aa4b2;
+  --text:#e6edf3;
+  --accent:#6ee7b7;
+  --accent-2:#60a5fa;
+  --danger:#ef4444;
+  --border:#1f2a37;
+  --shadow:0 6px 24px rgba(0,0,0,.25);
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;
+  background:linear-gradient(180deg,#0b0f14 0%, #0d1320 100%);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+.container{max-width:1050px;margin:0 auto;padding:16px}
+.row{display:flex;gap:12px;align-items:flex-start}
+.row.center{align-items:center}
+.row.between{justify-content:space-between}
+.gap{gap:12px}
+.stack-sm{flex-wrap:wrap}
+
+.app-header,.app-footer{
+  background:rgba(17,24,38,.7);
+  border-bottom:1px solid var(--border);
+  backdrop-filter:blur(8px);
+}
+.app-footer{border-top:1px solid var(--border);border-bottom:none}
+
+.brand{font-size:20px;margin:0}
+.nav{display:flex;gap:8px}
+.nav-link{
+  color:var(--muted);
+  text-decoration:none;
+  padding:8px 12px;
+  border-radius:10px;
+  transition:all .15s ease;
+}
+.nav-link:hover{background:#151c2b;color:var(--text)}
+.nav-link.active{background:#132132;color:var(--accent-2);box-shadow:var(--shadow)}
+
+main{padding:18px 16px 60px}
+
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow:var(--shadow);
+  margin:14px 0;
+  overflow:hidden;
+}
+.card-header{
+  padding:16px 18px;
+  border-bottom:1px solid var(--border);
+  background:linear-gradient(180deg,#121a2a, #0f1928);
+}
+.card-body{padding:16px 18px}
+
+.panel{
+  background:#0c1424;
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow:var(--shadow);
+  overflow:hidden;
+}
+.panel-header{
+  padding:12px 16px;
+  border-bottom:1px solid var(--border);
+  background:linear-gradient(180deg,#111a2a,#0f1928);
+}
+.panel-body{padding:12px 16px}
+
+h1,h2,h3{margin:0 0 8px 0}
+p{margin:8px 0 12px 0}
+.muted{color:var(--muted)}
+
+.badge{
+  display:inline-block;
+  padding:6px 10px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  font-size:12px;
+}
+.badge.ok{background:#0f2a1f;color:#9ef3c8;border-color:#174e35}
+.badge.warn{background:#2a1f10;color:#ffd7a6;border-color:#553a1a}
+.badge.err{background:#2a1010;color:#ffb4b4;border-color:#5a1c1c}
+.badge.muted{color:var(--muted);background:#151d2b}
+
+.btn{
+  cursor:pointer;border:none;padding:10px 14px;border-radius:12px;
+  background:linear-gradient(180deg,#1b2942,#16253b);color:var(--text);
+  transition:transform .05s ease, opacity .15s ease;box-shadow:var(--shadow);
+}
+.btn:hover{opacity:.95}
+.btn:active{transform:translateY(1px)}
+.btn.ghost{background:transparent;border:1px solid var(--border);box-shadow:none}
+.btn.danger{border-color:rgba(239,68,68,.35);color:#ffb7b7}
+
+.input{
+  flex:1 1 320px;padding:10px 12px;border-radius:12px;border:1px solid var(--border);
+  background:#0e1626;color:var(--text);outline:none;
+}
+.input:focus{border-color:#31456a}
+
+.log{
+  width:100%;min-height:160px;background:#0b1220;border:1px solid var(--border);
+  border-radius:12px;padding:12px;overflow:auto;line-height:1.4;white-space:pre-wrap;
+}
+
+.hr{border:none;height:1px;background:var(--border);margin:16px 0}
+
+/* Audit pills + issues */
+.score-pill{padding:8px 12px;border:1px solid var(--border);border-radius:12px}
+.score-pill.good{color:#9ef3c8;background:#0f2a1f;border-color:#174e35}
+.score-pill.ok{color:#ffe6a6;background:#2a2410;border-color:#5a4d1a}
+.score-pill.bad{color:#ffb4b4;background:#2a1010;border-color:#5a1c1c}
+.issue{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin:10px 0;background:#0c1626}
+.issue .area{font-weight:600;opacity:.9}
+.issue .title{margin:6px 0}
+.issue .fix{opacity:.9}
+
+/* Toast */
+.toast{
+  position:fixed;left:50%;transform:translateX(-50%);
+  bottom:18px;background:#0b1220;border:1px solid var(--border);
+  padding:10px 14px;border-radius:12px;box-shadow:var(--shadow);
+  opacity:0;pointer-events:none;transition:opacity .2s ease, transform .2s ease;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+
+/* Responsive */
+@media (max-width: 720px){
+  .nav{flex-wrap:wrap}
+  .brand{font-size:18px}
+}

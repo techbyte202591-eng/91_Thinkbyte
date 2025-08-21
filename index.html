@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Website Audit Dashboard</title>
+<style>
+  :root{--bg:#0b1220;--panel:#111827;--text:#e5e7eb;--muted:#94a3b8;--btn:#16a34a;--btn2:#334155;--outline:#1f2937}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  header{background:var(--panel);padding:12px 16px;border-bottom:1px solid var(--outline);display:flex;gap:12px;align-items:center}
+  h1{margin:0;font-size:18px}
+  input,button{font-size:14px;border-radius:8px;border:1px solid var(--outline);padding:10px;background:#0f172a;color:var(--text)}
+  input{min-width:360px}
+  button{cursor:pointer;background:var(--btn2)}
+  button.primary{background:var(--btn);border-color:#166534}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-left:auto}
+  .container{padding:16px}
+  .panel{background:var(--panel);border:1px solid var(--outline);border-radius:12px;padding:16px}
+  .title{font-weight:600;margin-bottom:8px}
+  pre{background:#0b1220;color:var(--text);border:1px solid var(--outline);border-radius:8px;padding:12px;min-height:320px;overflow:auto}
+  img{max-width:100%;border:1px solid var(--outline);border-radius:12px}
+  .grid{display:grid;grid-template-columns:1fr;gap:16px}
+  @media(min-width:1000px){ .grid{grid-template-columns:1.2fr .8fr} }
+  a.btnlink{display:inline-block;margin-top:8px;text-decoration:none;background:#10b981;color:white;padding:8px 12px;border-radius:8px}
+  small{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Website Audit Dashboard</h1>
+  <input id="url" type="url" placeholder="https://example.com" value="https://example.com"/>
+  <div class="bar">
+    <button id="scrape">Scrape</button>
+    <button id="audit" class="primary">Run Full Audit</button>
+    <button id="shot">Screenshot</button>
+    <button id="expJson">Export JSON</button>
+    <button id="expCsv">Export CSV</button>
+    <button id="expPdf">Export PDF</button>
+  </div>
+</header>
+
+<div class="container">
+  <div class="panel">
+    <div class="title">Output</div>
+    <pre id="out">—</pre>
+    <div id="links"></div>
+    <small id="hint">Tip: Run Full Audit first to enable exports.</small>
+  </div>
+
+  <div class="grid" style="margin-top:16px">
+    <div class="panel">
+      <div class="title">Screenshot</div>
+      <img id="img" alt="screenshot will appear here"/>
+    </div>
+    <div class="panel">
+      <div class="title">Report Files</div>
+      <div id="files">No files yet.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = s => document.querySelector(s);
+  let lastReport = null;
+  let lastReportId = null;
+  let lastReportUrl = null;
+
+  async function postJSON(path, body){
+    const res = await fetch(path, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body||{})
+    });
+    const ct = res.headers.get('content-type')||'';
+    if (!ct.includes('application/json')) {
+      const txt = await res.text();
+      throw new Error(`Expected JSON, got ${ct}\n${txt.slice(0,200)}`);
+    }
+    const json = await res.json();
+    if (!res.ok || json.success === false) {
+      throw new Error(json.error || 'Request failed');
+    }
+    return json;
+  }
+
+  function show(obj){ $('#out').textContent = JSON.stringify(obj, null, 2); }
+  function addFileLink(label, url){
+    if (!url) return;
+    const a = document.createElement('a');
+    a.href = url; a.textContent = label; a.className = 'btnlink'; a.target = '_blank'; a.rel = 'noopener';
+    const wrap = $('#files');
+    if (wrap.textContent.includes('No files')) wrap.textContent = '';
+    wrap.appendChild(a);
+  }
+
+  $('#scrape').addEventListener('click', async ()=>{
+    try{
+      $('#out').textContent = 'Scraping...';
+      const data = await postJSON('/api/scrape', { url: $('#url').value.trim() });
+      show(data);
+      $('#img').src = '';
+      $('#links').innerHTML = '';
+    }catch(e){ $('#out').textContent = 'Error: ' + e.message; }
+  });
+
+  $('#shot').addEventListener('click', async ()=>{
+    try{
+      $('#out').textContent = 'Taking screenshot...';
+      const data = await postJSON('/api/screenshot', { url: $('#url').value.trim(), fullPage:true });
+      show(data);
+      if (data.imageUrl) $('#img').src = data.imageUrl;
+      $('#links').innerHTML = '';
+    }catch(e){ $('#out').textContent = 'Error: ' + e.message; }
+  });
+
+  $('#audit').addEventListener('click', async ()=>{
+    try{
+      $('#out').textContent = 'Running full audit...';
+      const data = await postJSON('/api/audit', { url: $('#url').value.trim() });
+      lastReport = data.report;
+      lastReportId = data.reportId;
+      lastReportUrl = data.reportUrl;
+      show(data.report);
+      if (data.screenshotUrl) $('#img').src = data.screenshotUrl;
+      $('#links').innerHTML = data.reportUrl ? `<a class="btnlink" href="${data.reportUrl}" target="_blank" rel="noopener">Open HTML Report</a>` : '';
+      addFileLink('HTML Report', data.reportUrl);
+    }catch(e){ $('#out').textContent = 'Error: ' + e.message; }
+  });
+
+  async function exportFile(format){
+    if ((format==='json' || format==='csv') && !lastReport) { $('#out').textContent = 'Run Full Audit first.'; return; }
+    if (format==='pdf' && !lastReportUrl) { $('#out').textContent = 'Run Full Audit to generate HTML report first.'; return; }
+    try{
+      $('#out').textContent = `Exporting ${format.toUpperCase()}...`;
+      const payload = { format, report:lastReport, reportId:lastReportId, reportUrl:lastReportUrl };
+      const data = await postJSON('/api/export', payload);
+      show(data);
+      addFileLink(`${format.toUpperCase()} File`, data.fileUrl);
+    }catch(e){ $('#out').textContent = 'Error: ' + e.message; }
+  }
+
+  $('#expJson').addEventListener('click', ()=>exportFile('json'));
+  $('#expCsv').addEventListener('click', ()=>exportFile('csv'));
+  $('#expPdf').addEventListener('click', ()=>exportFile('pdf'));
+</script>
+</body>
+</html>
