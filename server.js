@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer';
+import open from 'open';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +29,7 @@ const launchBrowser = () =>
   puppeteer.launch({
     headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox']
+    // If Chromium can't launch on your machine, set Chrome path:
     // executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
   });
 
@@ -92,7 +95,7 @@ app.post('/api/screenshot', async (req, res) => {
   }
 });
 
-/* ---------------- FULL AUDIT (SECURITY-ONLY) ---------------- */
+/* ---------------- FULL AUDIT (SECURITY + ACCESSIBILITY) ---------------- */
 app.post('/api/audit', async (req, res) => {
   try {
     const { url } = req.body || {};
@@ -167,7 +170,63 @@ app.post('/api/audit', async (req, res) => {
 
       // Back to original page
       await page.goto(url, { waitUntil: 'networkidle2', timeout: 15000 });
-    } catch { /* ignore probe failures */ }
+    } catch { /* ignore probe failures; we only report positives */ }
+
+    // ---------------- Accessibility checks (added) ----------------
+    const accessibility = await page.evaluate(() => {
+      const issues = [];
+
+      // 1) Images without alt
+      const imgs = Array.from(document.querySelectorAll('img'));
+      const imgNoAlt = imgs.filter(img => !(img.getAttribute('alt') || '').trim()).length;
+      if (imgNoAlt > 0) issues.push({
+        id: 'img-alt',
+        impact: 'moderate',
+        description: `${imgNoAlt} image(s) missing alt text`
+      });
+
+      // 2) Form controls without a label, aria-label or aria-labelledby
+      const controls = Array.from(document.querySelectorAll('input, select, textarea, button'));
+      let unlabeled = 0;
+      controls.forEach(el => {
+        const id = el.id;
+        const hasLabel = id && document.querySelector(`label[for="${id}"]`);
+        const ariaLabel = el.getAttribute('aria-label');
+        const ariaLabelled = el.getAttribute('aria-labelledby');
+        if (!hasLabel && !ariaLabel && !ariaLabelled) unlabeled++;
+      });
+      if (unlabeled > 0) issues.push({
+        id: 'form-labels',
+        impact: 'serious',
+        description: `${unlabeled} form control(s) without accessible name`
+      });
+
+      // 3) Missing <html lang>
+      if (!document.documentElement.lang) {
+        issues.push({
+          id: 'html-lang',
+          impact: 'moderate',
+          description: 'Missing <html lang> attribute'
+        });
+      }
+
+      // 4) Heading structure jumps (e.g., H1 -> H3)
+      const hs = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'));
+      let lastLevel = 0;
+      hs.forEach(h => {
+        const lvl = parseInt(h.tagName.substring(1));
+        if (lastLevel && lvl - lastLevel > 1) {
+          issues.push({
+            id: 'heading-order',
+            impact: 'minor',
+            description: `Improper heading structure near <${h.tagName}>`
+          });
+        }
+        lastLevel = lvl;
+      });
+
+      return issues;
+    });
 
     // Screenshot for report
     const base = url.replace(/[^a-z0-9]/gi, '_').slice(0, 60) + '_' + Date.now();
@@ -177,7 +236,7 @@ app.post('/api/audit', async (req, res) => {
 
     await browser.close();
 
-    // Security recommendations
+    // Security recommendations (unchanged)
     const recs = [];
     if (!isHTTPS) recs.push('Serve the site over HTTPS to protect data in transit.');
     if (!headers.strictTransportSecurity) recs.push('Add HSTS (Strict-Transport-Security) to enforce HTTPS.');
@@ -195,10 +254,10 @@ app.post('/api/audit', async (req, res) => {
     if (probes.possibleXSSIndicators.length) recs.push('Reflected content indicator — sanitize/escape input and enforce a strict CSP.');
     if (jsErrors.length) recs.push('Fix JavaScript runtime/console errors that may expose vulnerabilities.');
 
-    // Minimal HTML report (security-only)
+    // -------------- Build HTML (adds Accessibility section) --------------
     const html = `<!doctype html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Security Report - ${url}</title>
+<title>Security & Accessibility Report - ${url}</title>
 <style>
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:24px;line-height:1.45}
 h1{margin:0 0 8px;font-size:22px} h2{margin:16px 0 8px;font-size:18px}
@@ -206,15 +265,17 @@ table{border-collapse:collapse;width:100%} th,td{border:1px solid #eee;padding:6
 .kv{display:grid;grid-template-columns:220px 1fr;gap:8px;margin:8px 0}
 .bad{color:#b00020}
 img{max-width:100%;border:1px solid #eee;border-radius:8px}
+code{background:#0b1220;color:#e5e7eb;padding:3px 6px;border-radius:6px}
 </style>
 </head><body>
-<h1>Security Report</h1>
+<h1>Security & Accessibility Report</h1>
 <div class="kv">
   <div>URL</div><div><a href="${url}">${url}</a></div>
   <div>Status</div><div>${status}</div>
   <div>HTTPS</div><div>${isHTTPS ? 'Yes' : '<span class="bad">No</span>'}</div>
 </div>
 <h2>Screenshot</h2><img src="../screenshots/${shotFile}" alt="screenshot">
+
 <h2>Security Headers</h2>
 <table><tbody>
 <tr><th>HSTS</th><td>${headers.strictTransportSecurity || '<span class="bad">Missing</span>'}</td></tr>
@@ -224,24 +285,38 @@ img{max-width:100%;border:1px solid #eee;border-radius:8px}
 <tr><th>Referrer-Policy</th><td>${headers.referrerPolicy || '<span class="bad">Missing</span>'}</td></tr>
 <tr><th>Permissions-Policy</th><td>${headers.permissionsPolicy || '—'}</td></tr>
 </tbody></table>
+
 <h2>Cookies</h2>
 <table><thead><tr><th>Name</th><th>HttpOnly</th><th>Secure</th><th>SameSite</th></tr></thead>
 <tbody>${cookies.map(c=>`<tr><td>${c.name}</td><td>${c.httpOnly}</td><td>${c.secure}</td><td>${c.sameSite||'—'}</td></tr>`).join('')}</tbody></table>
+
 <h2>Mixed Content</h2>
 ${mixedContent.length ? '<ul>' + mixedContent.slice(0,25).map(u=>`<li>${u}</li>`).join('') + '</ul>' : 'None'}
+
 <h2>JavaScript Errors</h2>
 ${jsErrors.length ? '<ul>' + jsErrors.slice(0,25).map(e=>`<li><code>${e.replace(/[<>&]/g,s=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]))}</code></li>`).join('') + '</ul>' : 'None'}
+
 <h2>Indicators</h2>
 <p><b>SQLi:</b> ${probes.possibleSQLiIndicators.length ? 'Possible' : 'None'}</p>
 <p><b>XSS:</b> ${probes.possibleXSSIndicators.length ? 'Possible' : 'None'}</p>
-<h2>Recommendations</h2>
-${recs.length ? '<ul>' + Array.from(new Set(recs)).map(r=>`<li>${r}</li>`).join('') + '</ul>' : 'No major issues detected.'}
+
+<h2>Accessibility</h2>
+${
+  accessibility.length
+    ? '<ul>' + accessibility.map(a => `<li><b>${a.id}</b> (${a.impact}) — ${a.description}</li>`).join('') + '</ul>'
+    : 'No immediate issues detected.'
+}
+
+<h2>Recommendations (Security)</h2>
+${recs.length ? '<ul>' + Array.from(new Set(recs)).map(r=>`<li>${r}</li>`).join('') + '</ul>' : 'No major security issues detected.'}
 </body></html>`;
 
     const reportFile = `${base}.html`;
     fs.writeFileSync(path.join(REPORTS_DIR, reportFile), html, 'utf8');
 
+    // JSON report object (keeps old shape, adds accessibility)
     const report = {
+      url,
       security: {
         status,
         isHTTPS,
@@ -251,7 +326,8 @@ ${recs.length ? '<ul>' + Array.from(new Set(recs)).map(r=>`<li>${r}</li>`).join(
         javascriptErrors: jsErrors.slice(0, 25),
         probes,
         recommendations: Array.from(new Set(recs))
-      }
+      },
+      accessibility // array of issue objects
     };
 
     return res.json({
@@ -262,11 +338,11 @@ ${recs.length ? '<ul>' + Array.from(new Set(recs)).map(r=>`<li>${r}</li>`).join(
       screenshotUrl: `/screenshots/${shotFile}`
     });
   } catch (e) {
-    return res.status(500).json({ success: false, error: 'Audit (security) failed', details: String(e?.message || e) });
+    return res.status(500).json({ success: false, error: 'Audit failed', details: String(e?.message || e) });
   }
 });
 
-/* ---------------- EXPORTS (JSON / CSV / PDF) — FIXED ---------------- */
+/* ---------------- EXPORTS (JSON / CSV / PDF) ---------------- */
 app.post('/api/export', async (req, res) => {
   try {
     const { format, report, reportId, reportUrl } = req.body || {};
@@ -285,7 +361,6 @@ app.post('/api/export', async (req, res) => {
 
     if (format === 'csv') {
       if (!report) return res.status(400).json({ success: false, error: 'Provide "report" JSON to export.' });
-      // Flatten a simple CSV from the security report
       const s = report.security || {};
       const rows = [
         ['URL', report.url || ''],
@@ -301,7 +376,8 @@ app.post('/api/export', async (req, res) => {
         ['MixedContentCount', (s.mixedContent || []).length],
         ['JSErrorsCount', (s.javascriptErrors || []).length],
         ['SQLiIndicators', (s.probes?.possibleSQLiIndicators || []).length],
-        ['XSSIndicators', (s.probes?.possibleXSSIndicators || []).length]
+        ['XSSIndicators', (s.probes?.possibleXSSIndicators || []).length],
+        ['A11yIssuesCount', (report.accessibility || []).length]
       ];
       const csv = ['key,value', ...rows.map(([k,v]) => `${JSON.stringify(k)},${JSON.stringify(v)}`)].join('\n');
       const file = path.join(REPORTS_DIR, `${base}.csv`);
@@ -328,6 +404,9 @@ app.post('/api/export', async (req, res) => {
 });
 
 /* ---------------- START SERVER ---------------- */
+
+
 app.listen(PORT, () => {
   console.log(`Server is running → http://localhost:${PORT}`);
+  open(`http://localhost:${PORT}`);  // 👈 This opens in browser automatically
 });
